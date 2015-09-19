@@ -23,6 +23,14 @@
           <input type="text" ng-model="ctrl.chatmsg">
           <input type="submit" value="chat">
         </form>
+        <hr>
+        {[ctrl.status]}
+        <input type="button" value="Refresh" ng-click="ctrl.getQueues()">
+        <input type="button" value="{[q.users.length]}/{[q.size]}" ng-show="ctrl.queueList && !ctrl.currentQueue" ng-click="ctrl.joinQueue($index)" ng-repeat="q in ctrl.queueList">
+        <input type="button" value="leave queue" ng-show="ctrl.currentQueue" ng-click="ctrl.leaveQueue()">
+        <ul ng-show="ctrl.currentQueue">
+          <li ng-repeat="user in ctrl.currentQueue.users">{[user.name]}</li>
+        </ul>
       </div>
     </div>
   </body>
