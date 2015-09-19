@@ -1,8 +1,29 @@
-<html>
-    <head>
-        <title>Liar's Dice</title>
-    </head>
-    <body>
-        <h1>Liar's Dice</h1>
-    </body>
+<html ng-app="myApp">
+  <head>
+    <title>Liar's Dice</title>
+    <script src="https://ajax.googleapis.com/ajax/libs/angularjs/1.4.6/angular.min.js"></script>
+    <script>
+      var old_token = "{{ token }}";
+    </script>
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+  </head>
+  <body>
+    <div ng-controller="MainController as ctrl">
+      <div ng-show="!ctrl.token">
+        <p>Not logged in</p>
+        <form ng-submit="ctrl.getToken()">
+          <input type="text" ng-model="ctrl.username" placeholder="username">
+          <input type="submit" value="join">
+        </form>
+      </div>
+      <div ng-show="ctrl.token">
+        <p>Token: {[ctrl.token]}</p>
+        <p>You are logged in, {[ctrl.username]}!</p>
+        <form ng-submit="ctrl.sendChat()">
+          <input type="text" ng-model="ctrl.chatmsg">
+          <input type="submit" value="chat">
+        </form>
+      </div>
+    </div>
+  </body>
 </html>
