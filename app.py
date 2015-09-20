@@ -157,16 +157,17 @@ def join_queue(token, queuetype):
     # if the queue isn't full, send all queue users updates about the queue
     qsize = int(results[2]) if results[2] else 0
     if qsize < queuetype:
-        update = get_queue(queuetype)
-        update["type"] = "queue"
-        update["status"] = qkey
+        update = {
+            "type": "queue",
+            "status": qkey,
+            "queue": get_queue(queuetype)
+        }
 
         member_tokens = [v.decode("utf-8") for v in r.smembers(qkey)]
         for member in member_tokens:
             push_update(member, update)
     else:
-        # start the game!
-        pass
+        create_game(queuetype)
 
     return True
 
@@ -186,9 +187,11 @@ def leave_queue(token):
 
     qsize = int(results[2]) if results[2] else 0
     if qsize > 0:
-        update = get_queue(queuetype)
-        update["type"] = "queue"
-        update["status"] = qkey
+        update = {
+            "type": "queue",
+            "status": qkey,
+            "queue": get_queue(queuetype)
+        }
 
         member_tokens = [v.decode("utf-8") for v in r.smembers(qkey)]
         for member in member_tokens:
@@ -196,6 +199,50 @@ def leave_queue(token):
 
     return True
 
+def get_game(game_id):
+    gkey = "game:{0}:members".format(game_id)
+    obj = {"users": []}
+    member_tokens = [v.decode("utf-8") for v in r.smembers(gkey)]
+    print(member_tokens)
+    for member in member_tokens:
+        username = user_active(member)
+        if username:
+            obj["users"].append({
+                "id": short_id(member),
+                "name": username
+            })
+        else:
+            delete_user(member) # this will call delete_game (eventually)
+    obj["size"] = len(obj["users"]) # probably redundant but matches with queue nicely
+    obj["state"] = list(map(json.loads, (v.decode("utf-8") for v in r.lrange("game:{0}:state".format(game_id), 0, -1))))
+    return obj
+
+def create_game(queuetype):
+    qkey = "queue:{0}".format(queuetype)
+    game_id = str(uuid.uuid4())
+
+    # remove them from the queue, add them to the game, update their statuses
+    print("before")
+    tokens = [r.spop(qkey).decode("utf-8") for v in range(queuetype)]
+    print(tokens)
+    gkey = "game:{0}:members".format(game_id)
+    pipe = r.pipeline()
+    for token in tokens:
+        pipe.sadd(gkey, token)
+        pipe.set(status_key(token), "game:{0}".format(game_id))
+    pipe.execute()
+
+    # send all the users a message about the game
+    update = {
+        "type": "game",
+        "status": "game:{0}".format(game_id),
+        "game": get_game(game_id)
+    }
+    print(update)
+    for token in tokens:
+        push_update(token, update)
+
+    # TODO: send users still in that queue an update about the queue (shouldn't be any left? not implementing yet)
 
 # -------- HELPER METHODS -------- #
 
@@ -298,9 +345,9 @@ def route_status():
     status = get_status(g.token)
     obj = {"status": status, "username": g.username}
     if status[:5] == "queue":
-        queue = get_queue(int(status.split(":")[1]))
-        obj["users"] = queue["users"]
-        obj["size"] = queue["size"]
+        obj["queue"] = get_queue(int(status.split(":")[1]))
+    elif status[:4] == "game":
+        obj["game"] = get_game(status.split(":")[1])
     return json.dumps(obj)
 
 
