@@ -24,7 +24,7 @@
         <hr>
         <h2>How to Play</h2>
         <p>Each player has five dice that only they can see. Players make bets on the number of dice present among all players. A bet consists of a quantity and a face (e.g. five 6s). Bets must increase: you can bet the same quantity and a higher face, or a higher quantity and any face.</p>
-        <p>A round ends when one player challenges the previous player rather than make a higher bet. All players reveal their dice and the they are counted. 1s are wild (they always count towards the quantity). The challenger wins if there aren't enough of the bet face, and the last better wins if they were correct.</p>
+        <p>A round ends when one player challenges the previous player rather than make a higher bet. All players reveal their dice and the they are counted. 1s are wild (they always count towards the quantity). The player challenged wins if there are enough of the bet face among all dice, and the challenger wins otherwise.</p>
         <p>For more information about the tech running behind the scenes, check out the <a href="https://github.com/Semicolon314/liars-dice">GitHub page</a>.</p>
       </div>
       <div ng-show="ctrl.token">
@@ -53,10 +53,10 @@
             <span>
               <span ng-show="user.ready && ctrl.gameState().state == 0">Ready</span>
               <span ng-show="user.dice" ng-repeat="die in user.dice track by $index">
-                <img class="die" ng-src="/static/face{[die]}.svg">
+                <img class="die" ng-src="/static/face{[die]}.png">
               </span>
               <span class="game-bet" ng-show="user.last_bet && user.last_bet.count > 0">
-                <span>{[user.last_bet.count]}&#215; </span><img class="die" ng-src="/static/face{[user.last_bet.face]}.svg">
+                <span>{[user.last_bet.count]}&#215; </span><img class="die" ng-src="/static/face{[user.last_bet.face]}.png">
               </span>
               <span class="game-bet" ng-show="user.last_bet && user.last_bet.count == 0">
                 Challenge
@@ -66,7 +66,7 @@
           <form ng-submit="ctrl.placeBet(false)" ng-show="ctrl.gameState().state == 2 && ctrl.gameState().currentTurn == ctrl.gameState().self.id">
             <hr>
             {[ctrl.betCount]} <input type="range" min="{[ctrl.gameState().minCount]}" max="{[ctrl.gameState().users.length * 5]}" ng-model="ctrl.betCount"><br>
-            <div class="die-button" ng-class="{'active': i == ctrl.betFace}" ng-repeat="i in [2, 3, 4, 5, 6]" ng-click="ctrl.betFace = i"><img class="die" ng-src="/static/face{[i]}.svg"></div>
+            <div class="die-button" ng-class="{'active': i == ctrl.betFace}" ng-repeat="i in [2, 3, 4, 5, 6]" ng-click="ctrl.betFace = i"><img class="die" ng-src="/static/face{[i]}.png"></div>
             <div class="button" ng-click="ctrl.placeBet(false)" ng-class="{'disabled': !ctrl.enableBet()}">Place Bet</div>
             <div class="button" ng-show="ctrl.gameState().bets.length > 0" ng-click="ctrl.placeBet(true)">Challenge</div>
           </form>
