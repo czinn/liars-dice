@@ -203,7 +203,6 @@ def get_game(game_id):
     gkey = "game:{0}:members".format(game_id)
     obj = {"users": []}
     member_tokens = [v.decode("utf-8") for v in r.smembers(gkey)]
-    print(member_tokens)
     for member in member_tokens:
         username = user_active(member)
         if username:
@@ -222,9 +221,7 @@ def create_game(queuetype):
     game_id = str(uuid.uuid4())
 
     # remove them from the queue, add them to the game, update their statuses
-    print("before")
     tokens = [r.spop(qkey).decode("utf-8") for v in range(queuetype)]
-    print(tokens)
     gkey = "game:{0}:members".format(game_id)
     pipe = r.pipeline()
     for token in tokens:
@@ -238,11 +235,60 @@ def create_game(queuetype):
         "status": "game:{0}".format(game_id),
         "game": get_game(game_id)
     }
-    print(update)
     for token in tokens:
         push_update(token, update)
 
     # TODO: send users still in that queue an update about the queue (shouldn't be any left? not implementing yet)
+
+def leave_game(token, username=None):
+    status = get_status(token)
+    if status[:4] != "game":
+        return False
+    game_id = status.split(":")[1]
+    delete_game(game_id, reason="{0} left the game".format(username) if username else "a player left the game")
+    return True
+
+def delete_game(game_id, reason=None):
+    tokens = [v.decode("utf-8") for v in r.smembers("game:{0}:members".format(game_id))]
+    pipe = r.pipeline()
+    for token in tokens:
+        push_update(token, {
+            "type": "game_delete",
+            "reason": reason,
+            "status": "lobby"
+        })
+        pipe.set(status_key(token), "lobby")
+    pipe.delete("game:{0}:members".format(game_id))
+    pipe.delete("game:{0}:state".format(game_id))
+    pipe.execute()
+
+def game_action(token, action):
+    status = get_status(token)
+    if status[:4] != "game":
+        return False
+    game_id = status.split(":")[1]
+    gkey = "game:{0}:state".format(game_id)
+
+    pipe = r.pipeline()
+    pipe.llen(gkey)
+    pipe.lrange(gkey, -1, -1)
+    results = pipe.execute()
+    print(results)
+    if action["type"] == "d" and results[0] > 0 and results[1] and json.loads(results[1][0].decode("utf-8"))["type"] != "d":
+        r.ltrim(gkey, results[0] + 1, -1)
+
+    action["id"] = short_id(token)
+    r.rpush(gkey, json.dumps(action))
+
+    # send out updates to all the players in the game
+    tokens = [v.decode("utf-8") for v in r.smembers("game:{0}:members".format(game_id))]
+    update = {
+        "type": "game",
+        "status": "game:{0}".format(game_id),
+        "game": get_game(game_id)
+    }
+    for member in tokens:
+        push_update(member, update)
 
 # -------- HELPER METHODS -------- #
 
@@ -350,8 +396,25 @@ def route_status():
         obj["game"] = get_game(status.split(":")[1])
     return json.dumps(obj)
 
+@app.route("/leavegame", methods=["POST"])
+@check_auth
+def route_leavegame():
+    success = leave_game(g.token, username=g.username)
+    if success:
+        return json.dumps({"success": 1})
+    else:
+        return json.dumps({"error": "there was a problem leaving the game"})
+
+@app.route("/action", methods=["POST"])
+@check_auth
+def route_action():
+    success = game_action(g.token, request.json)
+    if success:
+        return json.dumps({"success": 1})
+    else:
+        return json.dumps({"error": "there was a problem joining the queue"})
 
 # -------- START APP -------- #
 
 if __name__ == "__main__":
-    app.run()
+    app.run(port=5000)

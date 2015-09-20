@@ -32,8 +32,17 @@
         <ul ng-show="ctrl.currentQueue">
           <li ng-repeat="user in ctrl.currentQueue.users">{[user.name]}</li>
         </ul>
-        <div ng-show="ctrl.currentGame" ng-bind="ctrl.gameState()">
-
+        <div ng-show="ctrl.currentGame">
+          <input type="button" value="leave game" ng-click="ctrl.leaveGame()">
+          <input type="button" value="ready dice" ng-show="(ctrl.gameState().state == 0 && !ctrl.gameState().self.ready) || ctrl.gameState().state == 4" ng-click="ctrl.readyDice()">
+          <form ng-submit="ctrl.placeBet()" ng-show="ctrl.gameState().state == 2">
+            <input type="number" ng-model="ctrl.betCount" placeholder="count">
+            <input type="number" ng-model="ctrl.betFace" placeholder="face">
+            <input type="submit" value="place bet" ng-disabled="ctrl.gameState().currentTurn != ctrl.gameState().self.id">
+          </form>
+          <ul>
+            <li ng-repeat="user in ctrl.gameState().users">{[user.name]} <span ng-show="ctrl.gameState().currentTurn == user.id">*</span> <span ng-show="user.dice"><span ng-repeat="die in user.dice track by $index">{[die]}</span></span></li>
+          </ul>
         </div>
       </div>
     </div>
