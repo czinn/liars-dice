@@ -95,6 +95,9 @@ app.controller("MainController", ["$http", "$timeout", function($http, $timeout)
   }
 
   ctrl.getToken = function() {
+    if (ctrl.username.length < 3) {
+      return;
+    }
     $http.get("/token?username=" + ctrl.username)
       .then(function(response) {
         ctrl.token = response.data.token;
