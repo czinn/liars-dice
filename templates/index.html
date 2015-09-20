@@ -1,6 +1,10 @@
 <html ng-app="myApp">
   <head>
     <title>Liar's Dice</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link href="http://fonts.googleapis.com/css?family=Open+Sans" rel="stylesheet" type="text/css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="icon" href="/static/face6.png">
     <script src="https://ajax.googleapis.com/ajax/libs/angularjs/1.4.6/angular.min.js"></script>
     <script src="{{ url_for('static', filename='sha512.js') }}"></script>
     <script>
@@ -9,40 +13,63 @@
     <script src="{{ url_for('static', filename='app.js') }}"></script>
   </head>
   <body>
-    <div ng-controller="MainController as ctrl">
+    <div class="main-container" ng-controller="MainController as ctrl">
+      <h1>Liar's Dice</h1>
       <div ng-show="!ctrl.token">
-        <p>Not logged in</p>
+        <hr>
         <form ng-submit="ctrl.getToken()">
-          <input type="text" ng-model="ctrl.username" placeholder="username">
-          <input type="submit" value="join">
-        </form>
-      </div>
-      <div ng-show="ctrl.token">
-        <p>Token: {[ctrl.token]}</p>
-        <p>You are logged in, {[ctrl.username]}!</p>
-        <form ng-submit="ctrl.sendChat()">
-          <input type="text" ng-model="ctrl.chatmsg">
-          <input type="submit" value="chat">
+          <input type="text" class="biginput" ng-model="ctrl.username" placeholder="username"><br>
+          <div class="big button" ng-click="ctrl.getToken()">Join</div>
         </form>
         <hr>
-        {[ctrl.status]}
-        <input type="button" value="Refresh" ng-show="!ctrl.currentQueue && !ctrl.currentGame" ng-click="ctrl.getQueues()">
-        <input type="button" value="{[q.users.length]}/{[q.size]}" ng-show="ctrl.queueList && !ctrl.currentQueue && !ctrl.currentGame" ng-click="ctrl.joinQueue($index)" ng-repeat="q in ctrl.queueList">
-        <input type="button" value="leave queue" ng-show="ctrl.currentQueue" ng-click="ctrl.leaveQueue()">
-        <ul ng-show="ctrl.currentQueue">
-          <li ng-repeat="user in ctrl.currentQueue.users">{[user.name]}</li>
-        </ul>
+        <h2>How to Play</h2>
+        <p>Each player has five dice that only they can see. Players make bets on the number of dice present among all players. A bet consists of a quantity and a face (e.g. five 6s). Bets must increase: you can bet the same quantity and a higher face, or a higher quantity and any face.</p>
+        <p>A round ends when one player challenges the previous player rather than make a higher bet. All players reveal their dice and the they are counted. 1s are wild (they always count towards the quantity). The challenger wins if there aren't enough of the bet face, and the last better wins if they were correct.</p>
+        <p>For more information about the tech running behind the scenes, check out the <a href="https://github.com/Semicolon314/liars-dice">GitHub page</a>.</p>
+      </div>
+      <div ng-show="ctrl.token">
+        <div ng-show="!ctrl.currentQueue && !ctrl.currentGame">
+          <p>There are {[ctrl.activeUsers]} players online<br>and {[ctrl.activeGames]} active games.</p>
+          <hr>
+          <h2>Join a Queue</h2>
+          <div class="button" ng-show="ctrl.queueList" ng-click="ctrl.joinQueue($index)" ng-repeat="q in ctrl.queueList">
+            {[q.size]} player game<br>
+            {[q.users.length]} waiting
+          </div>
+        </div>
+        <div ng-show="ctrl.currentQueue">
+          <div class="button" ng-click="ctrl.leaveQueue()">Leave Queue</div>
+          <p>{[ctrl.currentQueue.users.length]}/{[ctrl.currentQueue.size]} players waiting</p>
+          <p><span ng-repeat="user in ctrl.currentQueue.users">{[user.name]}<br></span></p>
+        </div>
         <div ng-show="ctrl.currentGame">
-          <input type="button" value="leave game" ng-click="ctrl.leaveGame()">
-          <input type="button" value="ready dice" ng-show="(ctrl.gameState().state == 0 && !ctrl.gameState().self.ready) || ctrl.gameState().state == 4" ng-click="ctrl.readyDice()">
-          <form ng-submit="ctrl.placeBet()" ng-show="ctrl.gameState().state == 2">
-            <input type="number" ng-model="ctrl.betCount" placeholder="count">
-            <input type="number" ng-model="ctrl.betFace" placeholder="face">
-            <input type="submit" value="place bet" ng-disabled="ctrl.gameState().currentTurn != ctrl.gameState().self.id">
+          <div class="button" ng-click="ctrl.leaveGame()">Leave Game</div>
+          <hr>
+          <div class="button" ng-show="(ctrl.gameState().state == 0 && !ctrl.gameState().self.ready) || ctrl.gameState().state == 4" ng-click="ctrl.readyDice()">Ready</div>
+          <h2 ng-show="ctrl.gameState().state == 1">Rolling dice...</h2>
+          <div class="game-user" ng-class="{'current': ctrl.gameState().state == 2 && ctrl.gameState().currentTurn == user.id, 'cheater': user.cheater}" ng-repeat="user in ctrl.gameState().users">
+            {[user.name]} <span class="game-result" ng-show="user.score != 0">{[user.score>0?"Winner":"Loser"]}</span>
+            <br>
+            <span>
+              <span ng-show="user.ready && ctrl.gameState().state == 0">Ready</span>
+              <span ng-show="user.dice" ng-repeat="die in user.dice track by $index">
+                <img class="die" ng-src="/static/face{[die]}.svg">
+              </span>
+              <span class="game-bet" ng-show="user.last_bet && user.last_bet.count > 0">
+                <span>{[user.last_bet.count]}&#215; </span><img class="die" ng-src="/static/face{[user.last_bet.face]}.svg">
+              </span>
+              <span class="game-bet" ng-show="user.last_bet && user.last_bet.count == 0">
+                Challenge
+              </span>
+            </span>
+          </div>
+          <form ng-submit="ctrl.placeBet(false)" ng-show="ctrl.gameState().state == 2 && ctrl.gameState().currentTurn == ctrl.gameState().self.id">
+            <hr>
+            {[ctrl.betCount]} <input type="range" min="{[ctrl.gameState().minCount]}" max="{[ctrl.gameState().users.length * 5]}" ng-model="ctrl.betCount"><br>
+            <div class="die-button" ng-class="{'active': i == ctrl.betFace}" ng-repeat="i in [2, 3, 4, 5, 6]" ng-click="ctrl.betFace = i"><img class="die" ng-src="/static/face{[i]}.svg"></div>
+            <div class="button" ng-click="ctrl.placeBet(false)" ng-class="{'disabled': !ctrl.enableBet()}">Place Bet</div>
+            <div class="button" ng-show="ctrl.gameState().bets.length > 0" ng-click="ctrl.placeBet(true)">Challenge</div>
           </form>
-          <ul>
-            <li ng-repeat="user in ctrl.gameState().users">{[user.name]} <span ng-show="ctrl.gameState().currentTurn == user.id">*</span> <span ng-show="user.dice"><span ng-repeat="die in user.dice track by $index">{[die]}</span></span></li>
-          </ul>
         </div>
       </div>
     </div>

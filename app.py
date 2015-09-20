@@ -59,7 +59,10 @@ def delete_user(token):
 
     # do stuff based on the status
     if status and status.decode("utf-8")[:5] == "queue":
-        r.srem(status, token)
+        r.srem(status.decode("utf-8"), token)
+    elif status and status.decode("utf-8")[:4] == "game":
+        game_id = status.decode("utf-8").split(":")[1]
+        delete_game(game_id)
 
 # Update is a dictionary
 def push_update(token, update):
@@ -211,7 +214,7 @@ def get_game(game_id):
                 "name": username
             })
         else:
-            delete_user(member) # this will call delete_game (eventually)
+            delete_user(member) # this will call delete_game
     obj["size"] = len(obj["users"]) # probably redundant but matches with queue nicely
     obj["state"] = list(map(json.loads, (v.decode("utf-8") for v in r.lrange("game:{0}:state".format(game_id), 0, -1))))
     return obj
@@ -224,6 +227,7 @@ def create_game(queuetype):
     tokens = [r.spop(qkey).decode("utf-8") for v in range(queuetype)]
     gkey = "game:{0}:members".format(game_id)
     pipe = r.pipeline()
+    pipe.incr("active_games")
     for token in tokens:
         pipe.sadd(gkey, token)
         pipe.set(status_key(token), "game:{0}".format(game_id))
@@ -251,6 +255,7 @@ def leave_game(token, username=None):
 def delete_game(game_id, reason=None):
     tokens = [v.decode("utf-8") for v in r.smembers("game:{0}:members".format(game_id))]
     pipe = r.pipeline()
+    pipe.decr("active_games")
     for token in tokens:
         push_update(token, {
             "type": "game_delete",
@@ -317,16 +322,26 @@ def check_auth(f):
 def route_main():
     return render_template("index.html", token=session["token"] if "token" in session and ping_token(session["token"]) else "")
 
+
 @app.route("/token")
 def route_token():
+    get_active_users()
     username = request.args.get("username", None)
-    if username:
+    if username and len(username) >= 3:
+        username = username[:32]
         # Create a token for the user
         token = create_new_token(username)
         session["token"] = token
         return json.dumps({"token": token, "username": username})
     else:
         return json.dumps({"error": "specify username"})
+
+@app.route("/logout")
+@check_auth
+def route_logout():
+    delete_user(g.token)
+    del session["token"]
+    return json.dumps({"success": 1})
 
 @app.route("/updates")
 @check_auth
@@ -361,7 +376,12 @@ def route_getqueues():
     queues = []
     for i in range(MIN_PLAYERS, MAX_PLAYERS + 1):
         queues.append(get_queue(i))
-    return json.dumps(queues)
+    activegames = r.get("active_games")
+    return json.dumps({
+        "active_games": int(activegames) if activegames else 0,
+        "active_users": r.scard("active_users"),
+        "queues": queues
+    })
 
 @app.route("/joinqueue", methods=["POST"])
 @check_auth

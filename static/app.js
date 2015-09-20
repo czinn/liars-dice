@@ -31,7 +31,7 @@ function getDice(h) {
 
 // returns true if b is a valid bet after a
 function betCompare(a, b) {
-  return a === null || a.count > 0 && ((b.count === 0 && b.face === 0) || b.count > a.count || (b.count === a.count && b.face > a.face));
+  return a === null || a.face > 0 && ((b.count === 0 && b.face === 0) || b.count > a.count || (b.count === a.count && b.face > a.face));
 }
 
 function byProperty(prop) {
@@ -65,16 +65,20 @@ app.config(["$interpolateProvider", function($interpolateProvider) {
 app.controller("MainController", ["$http", "$timeout", function($http, $timeout) {
   var ctrl = this;
   ctrl.token = null;
+  ctrl.shortToken = null;
   ctrl.status = null;
   ctrl.queueList = null;
   ctrl.currentQueue = null;
   ctrl.currentGame = null;
+  ctrl.activeGames = 0;
+  ctrl.activeUsers = 0;
   var gameStateCache = null;
 
   if (old_token.length > 0) {
     $http.get("/status")
       .then(function(response) {
         ctrl.token = old_token;
+        ctrl.shortToken = shortId(ctrl.token);
         ctrl.username = response.data.username; // should be the same
         ctrl.status = response.data.status;
         if (ctrl.status.substring(0, 5) === "queue") {
@@ -83,7 +87,6 @@ app.controller("MainController", ["$http", "$timeout", function($http, $timeout)
           gameStateCache = null;
           ctrl.currentGame = response.data.game;
           autoGameActions();
-          console.log(response.data);
         }
         startUpdates();
       }, function(response) {
@@ -95,6 +98,7 @@ app.controller("MainController", ["$http", "$timeout", function($http, $timeout)
     $http.get("/token?username=" + ctrl.username)
       .then(function(response) {
         ctrl.token = response.data.token;
+        ctrl.shortToken = shortId(ctrl.token);
         ctrl.username = response.data.username; // should be the same
         ctrl.status = "lobby";
         startUpdates();
@@ -149,7 +153,9 @@ app.controller("MainController", ["$http", "$timeout", function($http, $timeout)
   ctrl.getQueues = function() {
     $http.get("getqueues")
       .then(function(response) {
-        ctrl.queueList = response.data;
+        ctrl.queueList = response.data.queues;
+        ctrl.activeUsers = response.data.active_users;
+        ctrl.activeGames = response.data.active_games;
       }, function(response) {
 
       });
@@ -167,25 +173,22 @@ app.controller("MainController", ["$http", "$timeout", function($http, $timeout)
     var users = {};
     var bets = [];
 
-    var cheater = null; // Changed to user id if someone is breaking the rules somehow
-    // (shouldn't happen because server is also doing checks, but client checks as well)
-
     for (var i = 0; i < g.users.length; i++) {
       var u = g.users[i];
-      users[u.id] = {id: u.id, name: u.name, ready: false, rolled: false, revealed: false, d: null, c: null, k: null, dice: null, turn_order: null, is_self: u.id === shortId(ctrl.token)};
+      users[u.id] = {id: u.id, name: u.name, ready: false, rolled: false, revealed: false, d: null, c: null, k: null, dice: null, turn_order: null, is_self: u.id === shortId(ctrl.token), last_bet: null, cheater: false, score: 0};
     }
 
     var ds = [];
     var cs = [];
     var ks = [];
     var state = 0; // 0 is waiting for ready, 1 is waiting for Cs (rolling), 2 is betting, 3 is waiting for reveals, 4 is waiting for ready after reveal
-    var curbet = null;
+    var curbet = {count: 0, face: 6};
     var lastTurn = null;
     for (var i = 0; i < g.state.length; i++) {
       var act = g.state[i];
       if (act.type === "d") {
         if (state != 0 || users[act.id].d != null) {
-          cheater = act.id;
+          users[act.id].cheater = true;
         }
         users[act.id].d = act.value;
         users[act.id].ready = true;
@@ -196,7 +199,7 @@ app.controller("MainController", ["$http", "$timeout", function($http, $timeout)
       } else if(act.type === "c") {
         // Verify that it matches the announed d
         if (state != 1 || hash(act.value) != users[act.id].d) {
-          cheater = act.id;
+          users[act.id].cheater = true;
         }
         users[act.id].c = act.value;
         users[act.id].rolled = true;
@@ -207,17 +210,18 @@ app.controller("MainController", ["$http", "$timeout", function($http, $timeout)
       } else if(act.type === "bet") {
         if (state === 2 && betCompare(curbet, act)) {
           bets.push(act);
+          users[act.id].last_bet = act;
           curbet = act;
           lastTurn = act.id;
           if (act.count === 0 && act.face === 0) {
             state = 3;
           }
         } else {
-          cheater = act.id;
+          users[act.id].cheater = true;
         }
       } else if(act.type === "k") {
         if (state != 3 || hash(act.value) != users[act.id].c) {
-          cheater = act.id;
+          users[act.id].cheater = true;
         }
         users[act.id].k = act.value;
         users[act.id].revealed = true;
@@ -230,6 +234,7 @@ app.controller("MainController", ["$http", "$timeout", function($http, $timeout)
 
     var seed = state >= 2 ? getSeed(cs) : null;
 
+    var diceCounts = [0, 0, 0, 0, 0, 0, 0];
     if (seed) {
       // Set own k even if not revealed and then calculate dice for all users possible, as well as turn_order
       var ownK = window.localStorage.k;
@@ -239,6 +244,9 @@ app.controller("MainController", ["$http", "$timeout", function($http, $timeout)
         users[u.id].turn_order = getPublic(seed, users[u.id].c);
         if(users[u.id].k) {
           users[u.id].dice = getDice(getPrivate(seed, users[u.id].k));
+          for(var j = 0; j < users[u.id].dice.length; j++) {
+            diceCounts[users[u.id].dice[j]] += 1;
+          }
         }
       }
     }
@@ -260,8 +268,29 @@ app.controller("MainController", ["$http", "$timeout", function($http, $timeout)
         }
       }
     }
-    console.log(lastTurn);
-    console.log((lastTurnIndex + 1) % sortedUsers.length);
+
+    if (state == 4) {
+      // Find the challenger and challengee
+      var challenger = lastTurnIndex;
+      var challengee = (lastTurnIndex - 1 + sortedUsers.length) % sortedUsers.length;
+      var challenge = sortedUsers[challengee].last_bet;
+      var realCount = diceCounts[1] + diceCounts[challenge.face];
+      var delta = realCount >= challenge.count ? 1 : -1;
+      sortedUsers[challengee].score += delta;
+      sortedUsers[challenger].score -= delta;
+    }
+
+    ctrl.betCount = curbet.count;
+    ctrl.betFace = curbet.face + 1;
+    if (ctrl.betFace >= 7) {
+      ctrl.betFace = 2;
+      ctrl.betCount += 1;
+    }
+    if (ctrl.betCount > 5 * sortedUsers.length) {
+      ctrl.betCount = 5 * sortedUsers.length;
+      ctrl.betFace = 6;
+      // someone did a max bet
+    }
 
     var obj = {
       "users": sortedUsers,
@@ -269,9 +298,9 @@ app.controller("MainController", ["$http", "$timeout", function($http, $timeout)
       "bets": bets,
       "self": users[shortId(ctrl.token)],
       "topBet": curbet,
+      "minCount": ctrl.betCount,
       "currentTurn": sortedUsers[(lastTurnIndex + 1) % sortedUsers.length].id
     };
-    console.log(obj);
     gameStateCache = obj;
     return obj;
   };
@@ -298,20 +327,28 @@ app.controller("MainController", ["$http", "$timeout", function($http, $timeout)
       });
   }
 
-  ctrl.placeBet = function() {
+  ctrl.enableBet = function() {
+    var g = ctrl.gameState();
+    return !g.topBet || parseInt(ctrl.betCount) > g.topBet.count || (parseInt(ctrl.betCount) == g.topBet.count && ctrl.betFace > ctrl.gameState().topBet.face);
+  }
+
+  ctrl.placeBet = function(challenge) {
     // Ensure that the bet is okay
     var g = ctrl.gameState();
-    console.log(g);
     if (g.state !== 2 || g.currentTurn !== g.self.id) {
       return;
     }
-    var bet = {"type": "bet", "count": ctrl.betCount, "face": ctrl.betFace};
-    ctrl.betCount = "";
-    ctrl.betFace = "";
+    var bet = {"type": "bet", "count": parseInt(ctrl.betCount), "face": ctrl.betFace};
+    if (challenge) {
+      bet.count = 0;
+      bet.face = 0;
+    }
     if ((bet.count < 1 || bet.count > 5 * g.users.length || bet.face < 2 || bet.face > 6) && !(bet.count == 0 && bet.face == 0)) {
       return; // don't be dumb
     }
-    console.log(g.topBet);
+    if(challenge && g.bets.length == 0) {
+      return;
+    }
     if (!betCompare(g.topBet, bet)) {
       return; // not a higher bet
     }
@@ -366,13 +403,13 @@ app.controller("MainController", ["$http", "$timeout", function($http, $timeout)
   }
 
   function handleUpdate(update) {
-    console.log(update);
     if (update.status) {
       ctrl.status = update.status;
       if (ctrl.status === "lobby") {
         ctrl.currentQueue = null;
         gameStateCache = null;
         ctrl.currentGame = null;
+        ctrl.getQueues();
       }
     }
     if (update.type === "queue") {
@@ -380,6 +417,19 @@ app.controller("MainController", ["$http", "$timeout", function($http, $timeout)
     }
     if (update.type === "game") {
       ctrl.currentQueue = null;
+      if (ctrl.currentGame && update.game.state.length < ctrl.currentGame.state.length) {
+        // Check whether we've readied up; if not, don't update yet
+        var found = false;
+        for (var i = 0; i < update.game.state.length; i++) {
+          if (update.game.state[i].id === ctrl.shortToken) {
+            found = true;
+            break;
+          }
+        }
+        if (!found) {
+          return;
+        }
+      }
       gameStateCache = null;
       ctrl.currentGame = update.game;
       autoGameActions();
@@ -392,7 +442,6 @@ app.controller("MainController", ["$http", "$timeout", function($http, $timeout)
       .then(function(response) {
         if (response.data.error) {
           // TODO: handle error
-          console.log(response.data);
           return;
         }
         for (var i = 0; i < response.data.updates.length; i++) {
